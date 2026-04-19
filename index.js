@@ -38,24 +38,6 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 
 dotenv.config();
-mongoose.connect(process.env.MONGODB_URI, {
-    dbName: 'auth_db'  // Explicitly set database name
-})
-    .then(() => console.log('MongoDB connected'))
-    .catch(err => console.log(err));
-
-
-// mongoose.connect(process.env.MONGODB_URI)
-//     .then(() => console.log('MongoDB connected'))
-//     .catch(err => console.log(err));
-
-// app.get('/', (req, res) => {
-//     res.send('Hello, World!');
-// });
-
-// app.get('/about', (req, res) => {
-//     res.send('About Us');
-// });
 
 // Include text/plain so Postman "Raw → Text" still parses JSON bodies (otherwise Content-Type is text/plain and req.body stays empty).
 app.use(
@@ -70,7 +52,30 @@ app.use('/api/admin', adminRoutes);
 app.use('/email', emailRoutes);
 app.use('/cart', cartRoutes);
 
-const PORT = process.env.PORT || 5000
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 5000;
+
+async function start() {
+    if (!process.env.MONGODB_URI) {
+        console.error('FATAL: MONGODB_URI is not set (add it in Render → Environment).');
+        process.exit(1);
+    }
+    try {
+        await mongoose.connect(process.env.MONGODB_URI, {
+            dbName: process.env.MONGODB_DB_NAME || 'auth_db',
+            serverSelectionTimeoutMS: 15000,
+        });
+        console.log('MongoDB connected');
+    } catch (err) {
+        console.error('MongoDB connection failed:', err.message);
+        console.error(
+            'Check: (1) MONGODB_URI in Render env, (2) Atlas → Network Access → allow 0.0.0.0/0 or your IP, (3) user/password in the URI.'
+        );
+        process.exit(1);
+    }
+
+    app.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}
+
+start();
