@@ -1,7 +1,29 @@
-const express = require('express'); 
+const express = require('express');
 const app = express();
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
+
+/** Browser clients on another origin (e.g. Vercel) need CORS. Set CORS_ORIGIN in Render to your frontend URL, or leave unset for `*`. */
+function corsMiddleware(req, res, next) {
+    const allow = process.env.CORS_ORIGIN || '*';
+    res.setHeader('Access-Control-Allow-Origin', allow);
+    res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+    );
+    res.setHeader(
+        'Access-Control-Allow-Methods',
+        'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+    );
+    if (allow !== '*') {
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(204);
+    }
+    next();
+}
+app.use(corsMiddleware);
 const productRoutes = require('./routes/productRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const emailRoutes = require('./routes/emailRoutes');
