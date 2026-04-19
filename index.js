@@ -3,6 +3,8 @@ const app = express();
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 
+dotenv.config();
+
 // Fail fast instead of hanging 10s when DB is not connected (clearer errors in logs/API).
 mongoose.set('bufferCommands', false);
 
@@ -38,10 +40,6 @@ const path = require('path');
 // Serve static files from the 'uploads' directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-
-
-dotenv.config();
-
 // Include text/plain so Postman "Raw → Text" still parses JSON bodies (otherwise Content-Type is text/plain and req.body stays empty).
 app.use(
     express.json({
@@ -55,6 +53,10 @@ app.use('/api/admin', adminRoutes);
 app.use('/email', emailRoutes);
 app.use('/cart', cartRoutes);
 
+app.get('/', (req, res) => {
+    res.type('text').send('ok');
+});
+
 app.get('/health', (req, res) => {
     const state = mongoose.connection.readyState;
     const labels = ['disconnected', 'connected', 'connecting', 'disconnecting'];
@@ -66,31 +68,58 @@ app.get('/health', (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-async function start() {
-    if (!process.env.MONGODB_URI) {
-        console.error('FATAL: MONGODB_URI is not set (add it in Render → Environment).');
-        process.exit(1);
+function mongoUri() {
+    return process.env.MONGODB_URI || process.env.MONGO_URI || '';
+}
+
+async function connectMongo() {
+    const uri = mongoUri();
+    if (!uri) {
+        console.error(
+            'MONGODB_URI is not set. On Render: Dashboard → Environment → add MONGODB_URI (do not rely on .env in git).'
+        );
+        return false;
     }
     try {
-        await mongoose.connect(process.env.MONGODB_URI, {
+        await mongoose.connect(uri, {
             dbName: process.env.MONGODB_DB_NAME || 'auth_db',
             serverSelectionTimeoutMS: 20000,
             socketTimeoutMS: 45000,
-            // Atlas + Render: prefer IPv4 when IPv6 path is broken (avoids "buffering timed out").
             family: 4,
         });
         console.log('MongoDB connected');
+        return true;
     } catch (err) {
         console.error('MongoDB connection failed:', err.message);
         console.error(
-            'Check: (1) MONGODB_URI in Render env, (2) Atlas → Network Access → allow 0.0.0.0/0, (3) URL-encode password in URI, (4) Render Start Command = npm start (uses index.js).'
+            'Fix: Render → Environment → MONGODB_URI. Atlas → Network Access → 0.0.0.0/0. URL-encode special chars in password.'
         );
-        process.exit(1);
+        return false;
     }
-
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log(`Server is running on port ${PORT}`);
-    });
 }
 
-start();
+async function start() {
+    // Bind HTTP first so Render sees the port open; do not process.exit() on DB failure.
+    await new Promise((resolve) => {
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`Server listening on port ${PORT}`);
+            console.log(
+                'Env check: MONGODB_URI=',
+                mongoUri() ? '(set)' : '(MISSING — add in Render Environment)'
+            );
+            resolve();
+        });
+    });
+
+    const ok = await connectMongo();
+    if (!ok) {
+        console.error(
+            'App is up without MongoDB. /health will show mongo state; fix URI and redeploy or restart.'
+        );
+    }
+}
+
+start().catch((err) => {
+    console.error('Startup error:', err);
+    process.exit(1);
+});
