@@ -34,6 +34,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const emailRoutes = require('./routes/emailRoutes');
 const cartRoutes = require('./routes/cartRoutes');
 const searchRoutes = require('./routes/searchRoutes');
+const mongoReady = require('./middlewares/mongoReady');
 
 const path = require('path');
 
@@ -47,10 +48,14 @@ app.use(
     })
 );
 app.use(express.urlencoded({ extended: true }));
+app.use('/api', mongoReady);
 app.use('/api', productRoutes);
 app.use('/api', searchRoutes);
+app.use('/api/admin', mongoReady);
 app.use('/api/admin', adminRoutes);
+app.use('/email', mongoReady);
 app.use('/email', emailRoutes);
+app.use('/cart', mongoReady);
 app.use('/cart', cartRoutes);
 
 app.get('/', (req, res) => {
@@ -72,14 +77,38 @@ function mongoUri() {
     return process.env.MONGODB_URI || process.env.MONGO_URI || '';
 }
 
+/**
+ * Encode user:password in mongodb(+srv):// URIs so reserved characters
+ * (* @ # : / ? etc.) in the password do not break parsing or auth.
+ */
+function encodePasswordInMongoUri(uri) {
+    if (!uri || typeof uri !== 'string') return uri;
+    try {
+        const m = uri.match(/^(mongodb(?:\+srv)?:\/\/)([^:]+):([^@]+)@(.+)/i);
+        if (!m) return uri;
+        const [, scheme, user, rawPass, hostAndQuery] = m;
+        let decoded = rawPass;
+        try {
+            decoded = decodeURIComponent(rawPass);
+        } catch {
+            decoded = rawPass;
+        }
+        const encPass = encodeURIComponent(decoded);
+        return `${scheme}${user}:${encPass}@${hostAndQuery}`;
+    } catch {
+        return uri;
+    }
+}
+
 async function connectMongo() {
-    const uri = mongoUri();
-    if (!uri) {
+    const raw = mongoUri();
+    if (!raw) {
         console.error(
             'MONGODB_URI is not set. On Render: Dashboard → Environment → add MONGODB_URI (do not rely on .env in git).'
         );
         return false;
     }
+    const uri = encodePasswordInMongoUri(raw);
     try {
         await mongoose.connect(uri, {
             dbName: process.env.MONGODB_DB_NAME || 'auth_db',
